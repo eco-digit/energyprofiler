@@ -15,5 +15,5 @@ build:
 	exit 1
 else
 build:
-	GOOS=linux GOARCH=amd64 $(GOBIN) build -o benchmark ./cmd
+	GOOS=$(GOOS) GOARCH=$(GOARCH) $(GOBIN) build -o benchmark ./cmd
 endif
