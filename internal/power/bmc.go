@@ -2,106 +2,216 @@ package power
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 type BMCReader struct {
 	verbose        bool
 	useSystemPower bool
+	warnedOnce     map[string]bool
+	sensorsLogged  map[string]bool
 }
 
 func NewBMCReader(useSystemPower bool, verbose bool) *BMCReader {
 	return &BMCReader{
 		useSystemPower: useSystemPower,
 		verbose:        verbose,
+		warnedOnce:     make(map[string]bool),
+		sensorsLogged:  make(map[string]bool),
 	}
 }
 
 func (b *BMCReader) ReadPower(resourceType string) (float64, error) {
+	rt := strings.ToLower(resourceType)
+
 	if b.useSystemPower {
 		return b.ReadSystemPower()
 	}
 
-	switch resourceType {
+	// Try component-specific power, with fallback to system if sensor is not available / or regex fails
+	switch rt {
 	case "cpu":
-		return b.readCPUPower()
+		return b.readWithFallback("cpu", b.readCPUPower)
 	case "memory":
-		return b.readDRAMPower()
+		return b.readWithFallback("memory", b.readDRAMPower)
+	case "storage":
+		return b.readWithFallback("storage", b.readStoragePower)
+	case "system":
+		return b.ReadSystemPower()
 	default:
+		b.logOnce(rt, "unknown component %q, using system power", resourceType)
 		return b.ReadSystemPower()
 	}
 }
 
+// readWithFallback tries component power, falls back to system and warns
+func (b *BMCReader) readWithFallback(component string, reader func() (float64, error)) (float64, error) {
+	if v, err := reader(); err == nil {
+		return v, nil
+	} else {
+		b.logOnce(component, "component power (%s) unavailable: %v, using system power", component, err)
+		return b.ReadSystemPower()
+	}
+}
+
+// logOnce logs a message only once per key to avoid spam
+func (b *BMCReader) logOnce(key, format string, args ...interface{}) {
+	if !b.warnedOnce[key] {
+		b.warnedOnce[key] = true
+		log.Printf("[bmc] "+format, args...)
+	}
+}
+
+// ReadSystemPower uses ipmitool DCMI.
+// Prefer instantaneous; if missing, fall back to average.
 func (b *BMCReader) ReadSystemPower() (float64, error) {
-	cmd := exec.Command("ipmitool", "sdr", "elist", "all")
-	output, err := cmd.Output()
+	out, err := exec.Command("ipmitool", "dcmi", "power", "reading").Output()
 	if err != nil {
-		return 0, fmt.Errorf("failed to read BMC data: %w", err)
+		return 0, fmt.Errorf("ipmitool dcmi power reading failed: %w", err)
 	}
 
-	re := regexp.MustCompile(`HSC Input Power.*?(\d+(?:\.\d+)?)\s*Watts`)
-	matches := re.FindStringSubmatch(string(output))
-	if len(matches) < 2 {
-		return 0, fmt.Errorf("HSC Input Power not found in BMC output")
+	s := string(out)
+
+	// Try instantaneous first
+	if v, ok := extractFloat(s, `(?i)Instantaneous\s+power\s+reading:\s*([\d.]+)\s*W`); ok {
+		if b.verbose {
+			log.Printf("[bmc] System power (instantaneous): %.2f W", v)
+		}
+		return v, nil
 	}
 
-	power, err := strconv.ParseFloat(matches[1], 64)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse system power value: %w", err)
+	// Fall back to average
+	if v, ok := extractFloat(s, `(?i)Average\s+power\s+reading.*?:\s*([\d.]+)\s*W`); ok {
+		if b.verbose {
+			log.Printf("[bmc] System power (average): %.2f W", v)
+		}
+		return v, nil
 	}
 
-	return power, nil
+	return 0, fmt.Errorf("no parsable value in DCMI output")
 }
 
+// Component readers (via SDR)
+
+// readCPUPower sums all CPU-related power sensors
 func (b *BMCReader) readCPUPower() (float64, error) {
-	cmd := exec.Command("ipmitool", "sdr", "elist", "all")
-	output, err := cmd.Output()
+	sdr, err := b.getSDR()
 	if err != nil {
-		return 0, fmt.Errorf("failed to read BMC data: %w", err)
+		return 0, err
 	}
 
-	re := regexp.MustCompile(`CPU Pkg Power.*?(\d+(?:\.\d+)?)\s*Watts`)
-	matches := re.FindStringSubmatch(string(output))
-	if len(matches) < 2 {
-		return 0, fmt.Errorf("CPU Pkg Power not found in BMC output")
+	patterns := []string{
+		`(?i)CPU\s*Pkg\s*Power.*?([\d.]+)\s*W`,
+		`(?i)CPU\s*Package\s*Power.*?([\d.]+)\s*W`,
+		`(?i)P\d+\s*Package\s*Power.*?([\d.]+)\s*W`,
+		`(?i)Package\s*Power.*?([\d.]+)\s*W`,
+		`(?i)CPU\d?\s*VR\s*POUT.*?([\d.]+)\s*W`,
+		`(?i)P\d+\s*core\s*VR\s*POUT.*?([\d.]+)\s*W`,
 	}
 
-	power, err := strconv.ParseFloat(matches[1], 64)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse CPU power value: %w", err)
+	if sum, count := sumMatches(sdr, patterns...); count > 0 {
+		if b.verbose {
+			log.Printf("[bmc] CPU power: %.2f W (%d sensors)", sum, count)
+		}
+		return sum, nil
 	}
-
-	return power, nil
+	return 0, fmt.Errorf("no CPU power sensors found")
 }
 
+// readDRAMPower sums all memory power sensors
 func (b *BMCReader) readDRAMPower() (float64, error) {
-	cmd := exec.Command("ipmitool", "sdr", "elist", "all")
-	output, err := cmd.Output()
+	sdr, err := b.getSDR()
 	if err != nil {
-		return 0, fmt.Errorf("failed to read BMC data: %w", err)
+		return 0, err
 	}
 
-	re := regexp.MustCompile(`DIMM.*POUT.*?(\d+(?:\.\d+)?)\s*Watts`)
-	matches := re.FindAllStringSubmatch(string(output), -1)
-	if len(matches) == 0 {
-		return 0, fmt.Errorf("DRAM power not found in BMC output")
+	//  POUT first
+	patterns := []string{
+		`(?i)DIMM.*?VR\d*\s*POUT.*?([\d.]+)\s*W`,
+		`(?i)MEM.*?VR\d*\s*POUT.*?([\d.]+)\s*W`,
+		`(?i)P\d+\s*DIMM.*?VR\d*\s*POUT.*?([\d.]+)\s*W`,
 	}
 
-	var sum float64
-	var count int
-	for _, m := range matches {
-		v, err := strconv.ParseFloat(m[1], 64)
-		if err == nil {
-			sum += v
-			count++
+	if sum, count := sumMatches(sdr, patterns...); count > 0 {
+		if b.verbose {
+			log.Printf("[bmc] DRAM power: %.2f W (%d sensors)", sum, count)
+		}
+		return sum, nil
+	}
+
+	return 0, fmt.Errorf("no DRAM poer sensors found")
+}
+
+// readStoragePower looks for storage-related power sensors
+func (b *BMCReader) readStoragePower() (float64, error) {
+	sdr, err := b.getSDR()
+	if err != nil {
+		return 0, err
+	}
+
+	// Fixed patterns with number as first capture group
+	patterns := []string{
+		`(?i)NVMe\d*.*?(?:POUT|Power).*?([\d.]+)\s*W`,
+		`(?i)(?:SSD|HDD|SATA).*?(?:POUT|Power).*?([\d.]+)\s*W`,
+		`(?i)(?:Drive|Disk).*?(?:POUT|Power).*?([\d.]+)\s*W`,
+		`(?i)Storage.*?(?:POUT|Power).*?([\d.]+)\s*W`,
+	}
+
+	if sum, count := sumMatches(sdr, patterns...); count > 0 {
+		if b.verbose {
+			log.Printf("[bmc] Storage power: %.2f W (%d sensors)", sum, count)
+		}
+		return sum, nil
+	}
+	return 0, fmt.Errorf("no storage power sensors found")
+}
+
+// --- Helpers ---
+
+// getSDR runs ipmitool sdr once and returns output
+func (b *BMCReader) getSDR() (string, error) {
+	out, err := exec.Command("ipmitool", "sdr", "elist", "all").Output()
+	if err != nil {
+		return "", fmt.Errorf("ipmitool sdr elist failed: %w", err)
+	}
+	return string(out), nil
+}
+
+// extractFloat finds first match of pattern and extracts float from capture group 1
+func extractFloat(text, pattern string) (float64, bool) {
+	re := regexp.MustCompile(pattern)
+	if m := re.FindStringSubmatch(text); len(m) >= 2 {
+		if v, err := strconv.ParseFloat(m[1], 64); err == nil {
+			return v, true
 		}
 	}
+	return 0, false
+}
 
-	if count == 0 {
-		return 0, fmt.Errorf("no parsable DIMM POUT values")
+// sumMatches sums all numeric matches from patterns (expects number in capture group 1)
+func sumMatches(text string, patterns ...string) (sum float64, count int) {
+	for _, p := range patterns {
+		re := regexp.MustCompile(p)
+		for _, m := range re.FindAllStringSubmatch(text, -1) {
+			if len(m) >= 2 {
+				if v, err := strconv.ParseFloat(m[1], 64); err == nil {
+					sum += v
+					count++
+				}
+			}
+		}
 	}
+	return sum, count
+}
 
-	return sum / float64(count), nil
+func (b *BMCReader) logSensorOnce(component, sensorInfo string) {
+	key := "sensor_" + component
+	if !b.sensorsLogged[key] {
+		b.sensorsLogged[key] = true
+		log.Printf("[bmc] Found %s sensor: %s", component, sensorInfo)
+	}
 }
