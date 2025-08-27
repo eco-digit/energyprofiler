@@ -66,6 +66,15 @@ func (b *BMCReader) logOnce(key, format string, args ...interface{}) {
 	}
 }
 
+// logSensorOnce logs discovered sensor only once per component
+func (b *BMCReader) logSensorOnce(component, sensorInfo string) {
+	key := "sensor_" + component
+	if !b.sensorsLogged[key] {
+		b.sensorsLogged[key] = true
+		log.Printf("[bmc] Found %s sensor: %s", component, sensorInfo)
+	}
+}
+
 // ReadSystemPower uses ipmitool DCMI.
 // Prefer instantaneous; if missing, fall back to average.
 func (b *BMCReader) ReadSystemPower() (float64, error) {
@@ -105,15 +114,16 @@ func (b *BMCReader) readCPUPower() (float64, error) {
 	}
 
 	patterns := []string{
-		`(?i)CPU\s*Pkg\s*Power.*?([\d.]+)\s*W`,
-		`(?i)CPU\s*Package\s*Power.*?([\d.]+)\s*W`,
-		`(?i)P\d+\s*Package\s*Power.*?([\d.]+)\s*W`,
-		`(?i)Package\s*Power.*?([\d.]+)\s*W`,
-		`(?i)CPU\d?\s*VR\s*POUT.*?([\d.]+)\s*W`,
-		`(?i)P\d+\s*core\s*VR\s*POUT.*?([\d.]+)\s*W`,
+		`(?i)(CPU\s*Pkg\s*Power).*?([\d.]+)\s*W`,
+		`(?i)(CPU\s*Package\s*Power).*?([\d.]+)\s*W`,
+		`(?i)(P\d+\s*Package\s*Power).*?([\d.]+)\s*W`,
+		`(?i)(Package\s*Power).*?([\d.]+)\s*W`,
+		`(?i)(CPU\d?\s*VR\s*POUT).*?([\d.]+)\s*W`,
+		`(?i)(P\d+\s*core\s*VR\s*POUT).*?([\d.]+)\s*W`,
 	}
 
-	if sum, count := sumMatches(sdr, patterns...); count > 0 {
+	if sum, count, names := sumMatchesWithNames(sdr, patterns...); count > 0 {
+		b.logSensorOnce("CPU", names)
 		if b.verbose {
 			log.Printf("[bmc] CPU power: %.2f W (%d sensors)", sum, count)
 		}
@@ -129,21 +139,21 @@ func (b *BMCReader) readDRAMPower() (float64, error) {
 		return 0, err
 	}
 
-	//  POUT first
 	patterns := []string{
-		`(?i)DIMM.*?VR\d*\s*POUT.*?([\d.]+)\s*W`,
-		`(?i)MEM.*?VR\d*\s*POUT.*?([\d.]+)\s*W`,
-		`(?i)P\d+\s*DIMM.*?VR\d*\s*POUT.*?([\d.]+)\s*W`,
+		`(?i)(DIMM.*?VR\d*\s*POUT).*?([\d.]+)\s*W`,
+		`(?i)(MEM.*?VR\d*\s*POUT).*?([\d.]+)\s*W`,
+		`(?i)(P\d+\s*DIMM.*?VR\d*\s*POUT).*?([\d.]+)\s*W`,
 	}
 
-	if sum, count := sumMatches(sdr, patterns...); count > 0 {
+	if sum, count, names := sumMatchesWithNames(sdr, patterns...); count > 0 {
+		b.logSensorOnce("DRAM", names)
 		if b.verbose {
 			log.Printf("[bmc] DRAM power: %.2f W (%d sensors)", sum, count)
 		}
 		return sum, nil
 	}
 
-	return 0, fmt.Errorf("no DRAM poer sensors found")
+	return 0, fmt.Errorf("no DRAM power sensors found")
 }
 
 // readStoragePower looks for storage-related power sensors
@@ -153,15 +163,15 @@ func (b *BMCReader) readStoragePower() (float64, error) {
 		return 0, err
 	}
 
-	// Fixed patterns with number as first capture group
 	patterns := []string{
-		`(?i)NVMe\d*.*?(?:POUT|Power).*?([\d.]+)\s*W`,
-		`(?i)(?:SSD|HDD|SATA).*?(?:POUT|Power).*?([\d.]+)\s*W`,
-		`(?i)(?:Drive|Disk).*?(?:POUT|Power).*?([\d.]+)\s*W`,
-		`(?i)Storage.*?(?:POUT|Power).*?([\d.]+)\s*W`,
+		`(?i)(NVMe\d*.*?(?:POUT|Power)).*?([\d.]+)\s*W`,
+		`(?i)((?:SSD|HDD|SATA).*?(?:POUT|Power)).*?([\d.]+)\s*W`,
+		`(?i)((?:Drive|Disk).*?(?:POUT|Power)).*?([\d.]+)\s*W`,
+		`(?i)(Storage.*?(?:POUT|Power)).*?([\d.]+)\s*W`,
 	}
 
-	if sum, count := sumMatches(sdr, patterns...); count > 0 {
+	if sum, count, names := sumMatchesWithNames(sdr, patterns...); count > 0 {
+		b.logSensorOnce("Storage", names)
 		if b.verbose {
 			log.Printf("[bmc] Storage power: %.2f W (%d sensors)", sum, count)
 		}
@@ -192,26 +202,35 @@ func extractFloat(text, pattern string) (float64, bool) {
 	return 0, false
 }
 
-// sumMatches sums all numeric matches from patterns (expects number in capture group 1)
-func sumMatches(text string, patterns ...string) (sum float64, count int) {
+// sumMatchesWithNames sums matches and returns sensor names found
+func sumMatchesWithNames(text string, patterns ...string) (sum float64, count int, names string) {
+	var foundSensors []string
+
 	for _, p := range patterns {
 		re := regexp.MustCompile(p)
 		for _, m := range re.FindAllStringSubmatch(text, -1) {
-			if len(m) >= 2 {
-				if v, err := strconv.ParseFloat(m[1], 64); err == nil {
+			if len(m) >= 3 {
+				// m[1] is sensor name, m[2] is value
+				if v, err := strconv.ParseFloat(m[2], 64); err == nil {
 					sum += v
 					count++
+					// Collect first 3 sensor names
+					if len(foundSensors) < 3 {
+						foundSensors = append(foundSensors, strings.TrimSpace(m[1]))
+					}
 				}
 			}
 		}
 	}
-	return sum, count
-}
 
-func (b *BMCReader) logSensorOnce(component, sensorInfo string) {
-	key := "sensor_" + component
-	if !b.sensorsLogged[key] {
-		b.sensorsLogged[key] = true
-		log.Printf("[bmc] Found %s sensor: %s", component, sensorInfo)
+	// Format names string
+	if len(foundSensors) > 0 {
+		if count > len(foundSensors) {
+			names = fmt.Sprintf("%s (and %d more)", strings.Join(foundSensors, ", "), count-len(foundSensors))
+		} else {
+			names = strings.Join(foundSensors, ", ")
+		}
 	}
+
+	return sum, count, names
 }
