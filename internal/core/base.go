@@ -61,6 +61,7 @@ func (b *BaseBenchmark) RunBenchmarkCycles(
 	return b.Aggregator.GetAggregatedProfile(), nil
 }
 
+// runSingleCycle() test for each cycle multiple load levels
 func (b *BaseBenchmark) runSingleCycle(
 	ctx context.Context,
 	loadGen LoadGenerator,
@@ -78,6 +79,7 @@ func (b *BaseBenchmark) runSingleCycle(
 		cycleData = append(cycleData, idleData)
 	}
 
+	//Test each load level
 	for _, loadLevel := range b.Config.LoadLevels {
 		select {
 		case <-ctx.Done():
@@ -95,6 +97,7 @@ func (b *BaseBenchmark) runSingleCycle(
 
 		data, err := b.collectMeasurements(ctx, utilizationGetter)
 		if err != nil {
+			// Stop load
 			loadGen.Stop()
 			return nil, fmt.Errorf("measurement collection failed: %w", err)
 		}
@@ -133,19 +136,21 @@ func (b *BaseBenchmark) measureIdle(ctx context.Context, utilizationGetter Utili
 	return data, nil
 }
 
+// collectMeasurements() collect power readings for each DBR
 func (b *BaseBenchmark) collectMeasurements(ctx context.Context, utilizationGetter UtilizationGetter) (types.CycleData, error) {
 	var powerValues []float64
 	var utilizationVals []float64
 
 	measurementEnd := time.Now().Add(b.Config.MeasurementDuration)
 
+	// Collect samples for set measurement duration
 	for time.Now().Before(measurementEnd) {
 		select {
 		case <-ctx.Done():
 			return types.CycleData{}, ctx.Err()
 		default:
 		}
-
+		// Read power from source (BMC)
 		power, err := b.PowerReader.ReadPower(b.ResourceType)
 		if err != nil {
 			log.Printf("Warning: power read failed: %v", err)
@@ -153,6 +158,7 @@ func (b *BaseBenchmark) collectMeasurements(ctx context.Context, utilizationGett
 			powerValues = append(powerValues, power)
 		}
 
+		// Read utilization (CPU%, Memory%, etc.)
 		util, err := utilizationGetter()
 		if err != nil {
 			log.Printf("Warning: utilization read failed: %v", err)

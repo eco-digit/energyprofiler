@@ -128,7 +128,7 @@ func (g *memoryCapacityLoadGenerator) Stop() error {
 	return nil
 }
 
-// getCurrentMemoryCapacityUtil gets current memory capacity utilization percentage
+// getCurrentMemoryCapacityUtil() gets current memory capacity utilization percentage
 func getCurrentMemoryCapacityUtil() (float64, error) {
 	memStat, err := mem.VirtualMemory()
 	if err != nil {

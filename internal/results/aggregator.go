@@ -21,6 +21,7 @@ func (a *Aggregator) AddCycle(cycle []types.CycleData) {
 	a.cycles = append(a.cycles, cycle)
 }
 
+// GetAggregatedProfile() returns measurement data after all cycles complete
 func (a *Aggregator) GetAggregatedProfile() *types.ResourceProfile {
 	if len(a.cycles) == 0 {
 		return &types.ResourceProfile{
@@ -31,6 +32,7 @@ func (a *Aggregator) GetAggregatedProfile() *types.ResourceProfile {
 
 	utilizationLevels := make(map[string][]float64)
 
+	// Group power values by utilization level across cycles
 	for _, cycle := range a.cycles {
 		for _, data := range cycle {
 			var utilKey string
@@ -47,6 +49,7 @@ func (a *Aggregator) GetAggregatedProfile() *types.ResourceProfile {
 		}
 	}
 
+	// Average across cycles for each utilization level
 	profile := make(map[string]float64)
 	var allAvgs []float64
 

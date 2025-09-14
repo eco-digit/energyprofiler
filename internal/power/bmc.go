@@ -113,6 +113,7 @@ func (b *BMCReader) readCPUPower() (float64, error) {
 		return 0, err
 	}
 
+	// Patterns to match CPU power sensors
 	patterns := []string{
 		`(?i)(CPU\s*Pkg\s*Power).*?([\d.]+)\s*W`,
 		`(?i)(CPU\s*Package\s*Power).*?([\d.]+)\s*W`,
