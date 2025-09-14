@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/shirou/gopsutil/v3/net"
 	"log"
 	"os/exec"
 	"strings"
@@ -14,6 +15,12 @@ import (
 	"github.com/eco-digit/energyprofiler/internal/types"
 )
 
+type networkStats struct {
+	bytesReceived uint64
+	bytesSent     uint64
+	timestamp     time.Time
+}
+
 type NetworkBenchmark struct {
 	*core.BaseBenchmark
 	networkInfo      *hardware.NetworkInfo
@@ -21,6 +28,7 @@ type NetworkBenchmark struct {
 	serverPort       int
 	currentBitrate   float64 // Gbps
 	currentLoadLevel int
+	lastStats        *networkStats
 }
 
 func NewNetworkBenchmark(config *types.Config) *NetworkBenchmark {
@@ -151,6 +159,7 @@ func (g *networkLoadGenerator) Stop() error {
 	// reset state
 	g.benchmark.currentBitrate = 0
 	g.benchmark.currentLoadLevel = 0
+	g.benchmark.lastStats = nil
 
 	if g.cmd != nil && g.cmd.Process != nil {
 		// Kill the process
@@ -167,10 +176,76 @@ func (g *networkLoadGenerator) Stop() error {
 }
 
 func (b *NetworkBenchmark) getNetworkUtilization() (float64, error) {
+	// Get current network stats for all physical interfaces
+	ioCounters, err := net.IOCounters(true)
+	if err != nil {
+		return float64(b.currentLoadLevel), err // Fallback to target
+	}
+
+	var totalBytesRx, totalBytesTx uint64
+	currentTime := time.Now()
+
+	// Sum up bytes for all physical interfaces
+	for _, iface := range b.networkInfo.Interfaces {
+		// Find matching interface in IO counters
+		for _, counter := range ioCounters {
+			if counter.Name == iface.Name {
+				totalBytesRx += counter.BytesRecv
+				totalBytesTx += counter.BytesSent
+				break
+			}
+		}
+	}
+
+	// Calculate throughput if we have previous stats
+	if b.lastStats != nil {
+		deltaTime := currentTime.Sub(b.lastStats.timestamp).Seconds()
+		if deltaTime > 0 {
+			// Calculate bytes transferred since last measurement
+			deltaBytesRx := totalBytesRx - b.lastStats.bytesReceived
+			deltaBytesTx := totalBytesTx - b.lastStats.bytesSent
+
+			// Convert to bits per second, then to Gbps
+			rxGbps := float64(deltaBytesRx) * 8 / deltaTime / 1e9
+			txGbps := float64(deltaBytesTx) * 8 / deltaTime / 1e9
+			totalGbps := rxGbps + txGbps
+
+			// Calculate utilization percentage
+			utilization := (totalGbps / b.networkInfo.TotalBandwidth) * 100.0
+
+			if b.Config.Verbose {
+				log.Printf("    Network throughput: RX %.1f Gbps, TX %.1f Gbps, Total %.1f Gbps (%.1f%% of %.1f Gbps)",
+					rxGbps, txGbps, totalGbps, utilization, b.networkInfo.TotalBandwidth)
+			}
+
+			// Update stats for next measurement
+			b.lastStats = &networkStats{
+				bytesReceived: totalBytesRx,
+				bytesSent:     totalBytesTx,
+				timestamp:     currentTime,
+			}
+
+			// Cap at 100%
+			if utilization > 100.0 {
+				utilization = 100.0
+			}
+
+			return utilization, nil
+		}
+	}
+
+	// First measurement - just store baseline
+	b.lastStats = &networkStats{
+		bytesReceived: totalBytesRx,
+		bytesSent:     totalBytesTx,
+		timestamp:     currentTime,
+	}
+
+	// Return target load level for first measurement
 	return float64(b.currentLoadLevel), nil
 }
 
-// iperf3Result structures for parsing JSON output (minimal needed fields)
+// iperf3Result structures for parsing JSON output
 type iperf3Result struct {
 	End struct {
 		SumReceived struct {

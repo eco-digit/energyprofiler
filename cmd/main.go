@@ -52,7 +52,9 @@ func main() {
 			log.Fatalf("Memory bandwidth benchmark failed: %v", err)
 		}
 	case "network", "transfer":
-		log.Fatalf("Network benchmark not yet moved from legacy code.")
+		if err := runNetworkBenchmark(ctx, config, benchmarkResults); err != nil {
+			log.Fatalf("Network benchmark failed: %v", err)
+		}
 
 	case "storage", "store":
 		if err := runStorageBenchmark(ctx, config, benchmarkResults); err != nil {
@@ -62,27 +64,34 @@ func main() {
 		log.Println("Running all benchmarks")
 
 		// CPU
-		log.Println("=== CPU Benchmark ===")
+		log.Println("### CPU Benchmark ###")
 		if err := runCPUBenchmark(ctx, config, benchmarkResults); err != nil {
 			log.Printf("Warning: CPU benchmark failed: %v", err)
 		}
 
 		// Memory Capacity
-		log.Println("=== Memory Capacity Benchmark ===")
+		log.Println("### Memory Capacity Benchmark ###")
 		if err := runMemoryCapacityBenchmark(ctx, config, benchmarkResults); err != nil {
 			log.Printf("Warning: Memory capacity benchmark failed: %v", err)
 		}
 
 		// Storage
-		log.Println("=== Storage Benchmark ===")
+		log.Println("### Storage Benchmark ###")
 		if err := runStorageBenchmark(ctx, config, benchmarkResults); err != nil {
 			log.Printf("Warning: Storage benchmark failed: %v", err)
+		}
+
+		// Tranfser/Network
+		log.Println("### Network Benchmark ###")
+		if err := runNetworkBenchmark(ctx, config, benchmarkResults); err != nil {
+			log.Printf("Warning: NEtwork benchmark failed: %v", err)
 		}
 
 	default:
 		log.Fatalf("Unknown resource type: %s", config.Resource)
 	}
 
+	// get total average
 	benchmarkResults.PowerProfile.TotalAvg = calculateTotalAverage(benchmarkResults)
 
 	if err := results.SaveResults(benchmarkResults, config.OutputFile); err != nil {
@@ -110,6 +119,8 @@ func parseFlags() *types.Config {
 		streamPath        = flag.String("stream-path", "/usr/local/bin/stream", "STREAM path")
 		streamWorkdir     = flag.String("stream-workdir", "", "STREAM workdir")
 		storageStressor   = flag.String("storage-stressor", "io", "Storage stressor type: io, hdd, ssd, iomix, aio")
+		networkServer     = flag.String("network-server", "", "iperf3 server address")
+		networkPort       = flag.Int("network-port", 5201, "iperf3 server port")
 	)
 
 	flag.Parse()
@@ -129,19 +140,22 @@ func parseFlags() *types.Config {
 		StreamPath:          *streamPath,
 		StreamWorkdir:       *streamWorkdir,
 		StorageStressor:     *storageStressor,
+		NetworkServer:       *networkServer,
+		NetworkPort:         *networkPort,
 	}
 }
 
 func runCPUBenchmark(ctx context.Context, config *types.Config, results *types.BenchmarkResults) error {
 	bench := benchmarks.NewCPUBenchmark(config)
 
-	log.Printf("=== Running %s Benchmark ===", bench.Name())
+	log.Printf("### Running %s Benchmark ###", bench.Name())
 
 	profile, err := bench.Run(ctx)
 	if err != nil {
 		return err
 	}
 
+	// after each benchmark
 	results.PowerProfile.Compute = profile
 	return nil
 }
@@ -163,7 +177,7 @@ func runMemoryCapacityBenchmark(ctx context.Context, config *types.Config, resul
 func runMemoryBandwidthBenchmark(ctx context.Context, config *types.Config, results *types.BenchmarkResults) error {
 	bench := benchmarks.NewMemoryBandwidthBenchmark(config)
 
-	log.Printf("=== Running %s Benchmark ===", bench.Name())
+	log.Printf("### Running %s Benchmark ###", bench.Name())
 	log.Printf("Note: Using predefined bandwidth configurations, ignoring --load-levels flag")
 
 	profile, err := bench.Run(ctx)
@@ -178,7 +192,7 @@ func runMemoryBandwidthBenchmark(ctx context.Context, config *types.Config, resu
 func runStorageBenchmark(ctx context.Context, config *types.Config, results *types.BenchmarkResults) error {
 	bench := benchmarks.NewStorageBenchmark(config)
 
-	log.Printf("=== Running %s Benchmark ===", bench.Name())
+	log.Printf("### Running %s Benchmark ###", bench.Name())
 
 	profile, err := bench.Run(ctx)
 	if err != nil {
@@ -186,6 +200,20 @@ func runStorageBenchmark(ctx context.Context, config *types.Config, results *typ
 	}
 
 	results.PowerProfile.Store = profile
+	return nil
+}
+
+func runNetworkBenchmark(ctx context.Context, config *types.Config, results *types.BenchmarkResults) error {
+	bench := benchmarks.NewNetworkBenchmark(config)
+
+	log.Printf("### Running %s Benchmark ###", bench.Name())
+
+	profile, err := bench.Run(ctx)
+	if err != nil {
+		return err
+	}
+
+	results.PowerProfile.Transfer = profile
 	return nil
 }
 
