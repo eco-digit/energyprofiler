@@ -1,7 +1,61 @@
 # Energyprofiler 
 Baremetal energy profiler for server without RAPL, turbostat or possibility to access PDU data
+
+
+## Requirements and Usage
+```
+GOOS=linux GOARCH=amd64 go build -o benchmark ./cmd
+```
+
+## Flag helper
+```
+Usage:
+   ./benchmark [flags]
+
+Flags:
+      --resource string                benchmark to run: cpu, memory, memory-bandwidth, storage, network all (default "cpu")
+      --cycles int                     how many times to repeat the benchmark (default 3)
+      --load-levels string             comma-separated percentages to target (default "10,25,50,75,100")
+      --stabilize duration             time to wait before measurement starts (default "30s")
+      --measurement-duration duration  how long to collect power + utilization (default "60s")
+      --measurement-interval duration  sample interval during measurement (default "10s")
+      --cooldown duration              idle time between benchmark cycles (default "30s")
+      --data-source string             power data source: bmc (default "bmc")
+      --output string                  path to write the results file (default "benchmark-results.json")
+      --stream-path string             path to the STREAM binary (default "/usr/local/bin/stream")
+      --stream-workdir string          working directory for running STREAM
+      --storage-stressor string        storage stressor type: io, hdd, ssd, iomix, aio (default "io")
+      --system-power                   if set, use system-wide power readings instead of component-specific
+      --verbose                        enable detailed logging
+  -h, --help                           show help message
+
+```
+
+## Default config
+If no falgs are provided the tool runs with the following default settings:
+```
+--resource="cpu"
+--cycles=3
+--load-levels="10,25,50,75,100"
+--stabilize="30s"
+--measurement-duration="60s"
+--measurement-interval="10s"
+--cooldown="30s"
+--output="benchmark-results.json"
+--stream-path="/usr/local/bin/stream"
+--verbose=false
+--system-power=false
+```
+
+
+
+
 ## DBR 1 CPU:
 This benchmark stresses CPU cores using stress-ng. Define the target utilization levels (e.g. 10%, 50%, 100%), and the profiler ramps up CPU load with multiple workers and collects power readings from the configured source (at the moment only BMC; set to component power cpu only or system-wide).
+
+- uid 0
+- requirements 
+- 
 #### Example:
 ```
 # Fast func test:
@@ -75,8 +129,8 @@ These are not measured, but used to:
 ./benchmark \
     --resource storage \
     --storage-stressor io \
-    --cycles 3 \
-    --load-levels 10,25,50,75,100 \
+    --cycles 1 \
+    --load-levels 10,20,30,40,50,60,70,80,90,100 \
     --stabilize 30s \
     --measurement-duration 60s \
     --cooldown 30s \
@@ -87,57 +141,14 @@ These are not measured, but used to:
 The network benchmark stresses data transfer (TCP/UDP) using iperf3 or a similar tool between nodes or VMs. It runs test clients against an external iperf server and ramps up throughput to measure power at different utilization levels.
 This helps profile NIC-related energy use (especially in multi-10G or bonded setups).
 
+To start the networking server for steam:
+
+
 #### Example:
 ```
-./benchmark -resource transfer -load-levels 25,50,75 -cycles 1 -stabilize 5s -measurement-duration 15s
+./benchmark -resource transfer --load-levels 10,20,30,40,50,60,70,80,90,100 --stabilize 30s --measurement-duration 60s --cooldown 30s --output network-power-profile.json --network-server 10.1.0.41
 ```
 
-
-## Flag helper
-```
-Usage:
-   ./benchmark [flags]
-
-Flags:
-      --resource string                benchmark to run: cpu, memory, memory-bandwidth, store, transfer (default "cpu")
-      --cycles int                     how many times to repeat the benchmark (default 3)
-      --load-levels string             comma-separated percentages to target (e.g. 10,25,50,75,100)
-      --stabilize duration             time to wait before measurement starts (default "30s")
-      --measurement-duration duration  how long to collect power + utilization (default "60s")
-      --measurement-interval duration  sample interval during measurement (default "10s")
-      --cooldown duration              idle time between benchmark cycles (default "30s")
-      --output string                  path to write the results file (default "benchmark-results.json")
-      --stream-path string             path to the STREAM binary (default "/usr/local/bin/stream")
-      --stream-workdir string          working directory for running STREAM
-      --system-power                   if set, use system-wide power readings instead of component-specific
-      --verbose                        enable detailed logging
-  -h, --help                           show help message
-
-```
-
-## Default config
-If no falgs are provided the tool runs with the following default settings:
-```
---resource="cpu"
---cycles=3
---load-levels="10,25,50,75,100"
---stabilize="30s"
---measurement-duration="60s"
---measurement-interval="10s"
---cooldown="30s"
---output="benchmark-results.json"
---stream-path="/usr/local/bin/stream"
---verbose=false
---system-power=false
-```
-
-
-# WIP
-# build binary
-
-```
-GOOS=linux GOARCH=amd64 go build -o benchmark ./cmd
-```
 
 
 

@@ -18,6 +18,9 @@ type Config struct {
 	StreamPath      string
 	StreamWorkdir   string
 	StorageStressor string
+
+	NetworkServer string
+	NetworkPort   int
 }
 
 type CycleData struct {

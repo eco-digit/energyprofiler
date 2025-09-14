@@ -178,6 +178,7 @@ func discoverWithFallback(ramInfo *RAMInfo) {
 	}
 }
 
+// should be removed as we already got this information from cpu
 func detectCPUType() string {
 	cmd := exec.Command("lscpu")
 	output, err := cmd.Output()
