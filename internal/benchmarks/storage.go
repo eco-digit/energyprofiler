@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/eco-digit/energyprofiler/internal/core"
@@ -13,12 +14,24 @@ import (
 	"github.com/shirou/gopsutil/v3/disk"
 )
 
+type StorageMetrics struct {
+	IOPS          float64
+	BandwidthMBps float64
+	ReadIOPS      float64
+	WriteIOPS     float64
+	ReadMBps      float64
+	WriteMBps     float64
+	AvgQueueSize  float64
+	Utilization   float64
+}
+
 // StorageBenchmark implements storage/ LOCAL disk benchmark
 type StorageBenchmark struct {
 	*core.BaseBenchmark
 	storageInfo      *hardware.StorageInfo
 	stressorType     string
 	currentLoadLevel int
+	lastMetrics      *StorageMetrics
 }
 
 // NewStorageBenchmark creates a new storage benchmark
@@ -207,57 +220,113 @@ func (g *storageLoadGenerator) Stop() error {
 	return nil
 }
 
-// getStorageUtilization returns storage utilization
-func (b *StorageBenchmark) getStorageUtilization() (float64, error) {
-	// Return the target load level as utilization
-	return float64(b.currentLoadLevel), nil
+func (b *StorageBenchmark) getDetailedStorageMetrics(device string) (*StorageMetrics, error) {
+	// Remove /dev/ prefix if present
+	device = strings.TrimPrefix(device, "/dev/")
 
-	// Option 2: Get actual I/O stats (more complex, commented out for now might add this in the future)
-	/*
-	   if b.storageInfo.PrimaryDevice != "" {
-	       return b.getActualIOUtilization(b.storageInfo.PrimaryDevice)
-	   }
-	   return float64(b.currentLoadLevel), nil
-	*/
-}
-
-// getActualIOUtilization attempts to measure actual I/O utilization
-// Todo for accurate measurement might needed
-func (b *StorageBenchmark) getActualIOUtilization(device string) (float64, error) {
 	// Get initial I/O stats
 	stats1, err := disk.IOCounters(device)
 	if err != nil || len(stats1) == 0 {
-		return float64(b.currentLoadLevel), nil // Fallback
+		return nil, fmt.Errorf("failed to get initial I/O stats for %s: %w", device, err)
 	}
 
-	// Wait a short time
-	time.Sleep(1 * time.Second)
+	// Wait for measurement interval
+	measureInterval := 2 * time.Second
+	time.Sleep(measureInterval)
 
 	// Get second reading
 	stats2, err := disk.IOCounters(device)
 	if err != nil || len(stats2) == 0 {
-		return float64(b.currentLoadLevel), nil // Fallback
+		return nil, fmt.Errorf("failed to get second I/O stats for %s: %w", device, err)
 	}
 
-	// I/O rate
-	stat1 := stats1[device]
-	stat2 := stats2[device]
+	stat1, ok1 := stats1[device]
+	stat2, ok2 := stats2[device]
+	if !ok1 || !ok2 {
+		return nil, fmt.Errorf("device %s not found in I/O stats", device)
+	}
 
-	readRate := float64(stat2.ReadBytes - stat1.ReadBytes)    // bytes/sec
-	writeRate := float64(stat2.WriteBytes - stat1.WriteBytes) // bytes/sec
-	totalRate := (readRate + writeRate) / 1024 / 1024         // MB/s
+	// Calculate deltas
+	deltaTime := measureInterval.Seconds()
 
-	// Calculate utilization as percentage of theoretical max
-	utilization := (totalRate / b.storageInfo.TheoreticalBW) * 100.0
+	metrics := &StorageMetrics{
+		ReadIOPS:  float64(stat2.ReadCount-stat1.ReadCount) / deltaTime,
+		WriteIOPS: float64(stat2.WriteCount-stat1.WriteCount) / deltaTime,
+		ReadMBps:  float64(stat2.ReadBytes-stat1.ReadBytes) / deltaTime / (1024 * 1024),
+		WriteMBps: float64(stat2.WriteBytes-stat1.WriteBytes) / deltaTime / (1024 * 1024),
+	}
 
-	// Cap
+	metrics.IOPS = metrics.ReadIOPS + metrics.WriteIOPS
+	metrics.BandwidthMBps = metrics.ReadMBps + metrics.WriteMBps
+
+	// Calculate weighted utilization based on workload type
+	metrics.Utilization = b.calculateUtilization(metrics)
+
+	// Store for reference
+	b.lastMetrics = metrics
+
+	return metrics, nil
+}
+
+// calculateUtilization computes utilization percentage based on workload type
+func (b *StorageBenchmark) calculateUtilization(metrics *StorageMetrics) float64 {
+	var utilization float64
+
+	iopsUtil := (metrics.IOPS / float64(b.storageInfo.TheoreticalIOPS)) * 100.0
+	bwUtil := (metrics.BandwidthMBps / b.storageInfo.TheoreticalBW) * 100.0
+
+	switch b.stressorType {
+	case "io", "iomix", "aio":
+		// I/O intensive workloads - prioritize IOPS
+		utilization = (iopsUtil * 0.7) + (bwUtil * 0.3)
+	case "hdd", "ssd":
+		// Sequential workloads - prioritize bandwidth
+		utilization = (bwUtil * 0.7) + (iopsUtil * 0.3)
+	default:
+		// Equal weighting
+		utilization = (iopsUtil + bwUtil) / 2.0
+	}
+
+	// Cap at 100%
 	if utilization > 100.0 {
 		utilization = 100.0
 	}
 
-	// minimum based on load level
+	// Log detailed metrics if verbose
+	if b.Config.Verbose {
+		log.Printf("    Storage Metrics:")
+		log.Printf("      IOPS: %.0f (Read: %.0f, Write: %.0f) - %.1f%% of theoretical",
+			metrics.IOPS, metrics.ReadIOPS, metrics.WriteIOPS, iopsUtil)
+		log.Printf("      Bandwidth: %.1f MB/s (Read: %.1f, Write: %.1f) - %.1f%% of theoretical",
+			metrics.BandwidthMBps, metrics.ReadMBps, metrics.WriteMBps, bwUtil)
+		log.Printf("      Calculated Utilization: %.1f%%", utilization)
+	}
+
+	return utilization
+}
+
+// Updated getStorageUtilization to use detailed metrics
+func (b *StorageBenchmark) getStorageUtilization() (float64, error) {
+	if b.storageInfo.PrimaryDevice == "" {
+		log.Printf("Warning: No primary device detected, using target load level")
+		return float64(b.currentLoadLevel), nil
+	}
+
+	metrics, err := b.getDetailedStorageMetrics(b.storageInfo.PrimaryDevice)
+	if err != nil {
+		log.Printf("Warning: Failed to get storage metrics: %v, using target load", err)
+		return float64(b.currentLoadLevel), nil
+	}
+
+	// Apply adjustment if measured is too low
+	utilization := metrics.Utilization
 	if utilization < float64(b.currentLoadLevel)*0.5 {
-		utilization = float64(b.currentLoadLevel) * 0.8
+		// Mix actual and target: 60% actual, 40% target
+		utilization = (utilization * 0.6) + (float64(b.currentLoadLevel) * 0.4)
+		if b.Config.Verbose {
+			log.Printf("    Adjusted utilization from %.1f%% to %.1f%% (target was %d%%)",
+				metrics.Utilization, utilization, b.currentLoadLevel)
+		}
 	}
 
 	return utilization, nil
