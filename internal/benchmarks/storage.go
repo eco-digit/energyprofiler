@@ -120,95 +120,92 @@ func (g *storageLoadGenerator) Start(loadLevel int) error {
 	// Update the current load level in the benchmark
 	g.benchmark.currentLoadLevel = loadLevel
 
-	// Calculate number of workers based on load level
-	maxWorkers := 16
-	numWorkers := (maxWorkers * loadLevel) / 100
-	if numWorkers < 1 {
-		numWorkers = 1
-	}
-
 	var args []string
+	var numWorkers int
 	timeoutDuration := g.config.StabilizeDuration + g.config.MeasurementDuration + (30 * time.Second)
 
 	switch g.stressorType {
 	case "io":
-		//  I/O stress
-		opsPerWorker := 10000 * loadLevel / 10 // 100-10000 ops based on load
+		// Pure I/O stress with limited workers for linear scaling
+		numWorkers = 1 + (3 * loadLevel / 100) // 1-4 workers max
 		args = []string{
 			"--io", fmt.Sprintf("%d", numWorkers),
 			"--timeout", fmt.Sprintf("%.0fs", timeoutDuration.Seconds()),
+			"--metrics-brief",
 		}
-		log.Printf("    I/O stress: %d workers, %d ops per worker", numWorkers, opsPerWorker)
+		log.Printf("    I/O stress: %d workers for %d%% load", numWorkers, loadLevel)
 
 	case "hdd":
-		// HDD stress
+		// HDD stress with limited workers
+		numWorkers = 1 + (3 * loadLevel / 100) // 1-4 workers max
 		sizePerWorker := fmt.Sprintf("%dG", loadLevel/5)
 		if loadLevel < 10 {
 			sizePerWorker = "1G"
 		}
 		args = []string{
-			fmt.Sprintf("--%s", g.stressorType),
-			fmt.Sprintf("%d", numWorkers),
+			"--hdd", fmt.Sprintf("%d", numWorkers),
 			"--hdd-bytes", sizePerWorker,
+			"--hdd-write-size", "1M", // Sequential chunks
 			"--timeout", fmt.Sprintf("%.0fs", timeoutDuration.Seconds()),
 			"--metrics-brief",
 		}
 		log.Printf("    HDD stress: %d workers, %s per worker", numWorkers, sizePerWorker)
 
 	case "ssd":
-		// Note: stress-ng doesn't have --ssd, use --hdd with SSD-friendly options
+		// SSD optimized with slightly more workers
+		numWorkers = 1 + (5 * loadLevel / 100) // 1-6 workers max
 		sizePerWorker := fmt.Sprintf("%dG", loadLevel/10)
 		if loadLevel < 10 {
 			sizePerWorker = "256M"
 		}
 		args = []string{
-			"--hdd", // Use hdd stressor for SSD too
-			fmt.Sprintf("%d", numWorkers),
+			"--hdd", fmt.Sprintf("%d", numWorkers),
 			"--hdd-bytes", sizePerWorker,
-			"--hdd-opts", "direct,sync", // SSD-friendly options
+			"--hdd-opts", "direct,sync,wr-rnd,rd-rnd", // Random I/O for SSD
+			"--hdd-write-size", "4K", // 4KB chunks for SSD
 			"--timeout", fmt.Sprintf("%.0fs", timeoutDuration.Seconds()),
 			"--metrics-brief",
 		}
-		log.Printf("SSD stress: %d workers, %s per worker", numWorkers, sizePerWorker)
+		log.Printf("    SSD stress: %d workers, %s per worker, 4K random I/O", numWorkers, sizePerWorker)
 
 	case "iomix":
-		// Mixed I/O workload
-		opsPerWorker := 500 * loadLevel / 10
+		// Mixed I/O workload with limited workers
+		numWorkers = 1 + (3 * loadLevel / 100)            // 1-4 workers max
+		opsPerWorker := 10000 + (40000 * loadLevel / 100) // 10K-50K ops
 		args = []string{
-			"--iomix",
-			fmt.Sprintf("%d", numWorkers),
+			"--iomix", fmt.Sprintf("%d", numWorkers),
 			"--iomix-ops", fmt.Sprintf("%d", opsPerWorker),
 			"--timeout", fmt.Sprintf("%.0fs", timeoutDuration.Seconds()),
 			"--metrics-brief",
 		}
-		log.Printf("/O mix stress: %d workers, %d ops per worker", numWorkers, opsPerWorker)
+		log.Printf("    I/O mix stress: %d workers, %d ops per worker", numWorkers, opsPerWorker)
 
 	case "aio":
-		// Async I/O
-		requests := loadLevel * 2
-		if requests < 4 {
-			requests = 4
-		}
+		// Async I/O with limited workers and scaled queue depth
+		numWorkers = 1 + (2 * loadLevel / 100)   // 1-3 workers max
+		queueDepth := 4 + (28 * loadLevel / 100) // 4-32 queue depth
 		args = []string{
-			"--aio",
-			fmt.Sprintf("%d", numWorkers),
-			"--aio-requests", fmt.Sprintf("%d", requests),
+			"--aio", fmt.Sprintf("%d", numWorkers),
+			"--aio-requests", fmt.Sprintf("%d", queueDepth),
 			"--timeout", fmt.Sprintf("%.0fs", timeoutDuration.Seconds()),
 			"--metrics-brief",
 		}
-		log.Printf("Async I/O stress: %d workers, %d requests queue depth", numWorkers, requests)
+		log.Printf("    Async I/O stress: %d workers, queue depth %d", numWorkers, queueDepth)
 
 	default:
 		return fmt.Errorf("unsupported stressor type: %s", g.stressorType)
 	}
 
-	log.Printf("    Target load: %d%%, Starting %d workers with %s stressor",
-		loadLevel, numWorkers, g.stressorType)
+	log.Printf("    Target load: %d%%, Starting stress-ng with %s stressor",
+		loadLevel, g.stressorType)
 
 	g.cmd = exec.Command("stress-ng", args...)
+
+	// Set working directory to temp to avoid filling system disk
+	g.cmd.Dir = "/tmp"
+
 	return g.cmd.Start()
 }
-
 func (g *storageLoadGenerator) Stop() error {
 	// Reset load level when stopping
 	g.benchmark.currentLoadLevel = 0
