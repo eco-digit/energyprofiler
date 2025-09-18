@@ -121,6 +121,7 @@ func parseFlags() *types.Config {
 		storageStressor   = flag.String("storage-stressor", "io", "Storage stressor type: io, hdd, ssd, iomix, aio")
 		networkServer     = flag.String("network-server", "", "iperf3 server address")
 		networkPort       = flag.Int("network-port", 5201, "iperf3 server port")
+		networkTestMode   = flag.String("network-mode", "send", "Network test mode: send, receive, or bidirectional")
 	)
 
 	flag.Parse()
@@ -142,6 +143,7 @@ func parseFlags() *types.Config {
 		StorageStressor:     *storageStressor,
 		NetworkServer:       *networkServer,
 		NetworkPort:         *networkPort,
+		NetworkTestMode:     *networkTestMode,
 	}
 }
 
