@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/shirou/gopsutil/v3/net"
 	"log"
+	"math"
 	"os/exec"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ type NetworkBenchmark struct {
 	currentBitrate   float64 // Gbps
 	currentLoadLevel int
 	lastStats        *networkStats
+	testMode         string
 }
 
 func NewNetworkBenchmark(config *types.Config) *NetworkBenchmark {
@@ -36,11 +38,19 @@ func NewNetworkBenchmark(config *types.Config) *NetworkBenchmark {
 		BaseBenchmark: core.NewBaseBenchmark(config, "network"),
 		serverAddr:    config.NetworkServer,
 		serverPort:    config.NetworkPort,
+		testMode:      config.NetworkTestMode,
 	}
 }
 
 func (b *NetworkBenchmark) Name() string {
-	return "Network/Transfer"
+	switch b.testMode {
+	case "receive":
+		return "Network/Transfer (Receive)"
+	case "bidirectional":
+		return "Network/Transfer (Bidirectional)"
+	default:
+		return "Network/Transfer (Send)"
+	}
 }
 
 func (b *NetworkBenchmark) Validate() error {
@@ -125,8 +135,16 @@ func (g *networkLoadGenerator) Start(loadLevel int) error {
 	// Update current load level
 	g.benchmark.currentLoadLevel = loadLevel
 
-	// Calculate target bandwidth
-	targetGbps := (g.maxBandwidth * float64(loadLevel)) / 100.0
+	// Calculate target bandwidth based on test mode
+	var targetGbps float64
+	if g.benchmark.testMode == "bidirectional" {
+		// For bidirectional, target is per direction
+		targetGbps = (g.maxBandwidth * float64(loadLevel)) / 100.0
+	} else {
+		// For unidirectional, target is total
+		targetGbps = (g.maxBandwidth * float64(loadLevel)) / 100.0
+	}
+
 	g.benchmark.currentBitrate = targetGbps
 
 	// Build iperf3 command
@@ -138,12 +156,27 @@ func (g *networkLoadGenerator) Start(loadLevel int) error {
 		"-t", fmt.Sprintf("%.0f", timeoutDuration.Seconds()),
 	}
 
-	// less than 100% load, set bandwidth limit
+	// Add test mode specific flags
+	switch g.benchmark.testMode {
+	case "receive":
+		args = append(args, "-R") // Reverse mode
+
+	case "bidirectional":
+		args = append(args, "--bidir") // Bidirectional mode
+	}
+
+	// Set bandwidth limit
 	if loadLevel < 100 {
-		args = append(args, "-b", fmt.Sprintf("%.1fG", targetGbps))
-		log.Printf("    Target load: %d%% (limited to %.1f Gbps)", loadLevel, targetGbps)
+		if g.benchmark.testMode == "bidirectional" {
+			// For bidirectional, set bandwidth per stream
+			args = append(args, "-b", fmt.Sprintf("%.1fG", targetGbps))
+			log.Printf("    Target load: %d%% (%.1f Gbps each direction)", loadLevel, targetGbps)
+		} else {
+			args = append(args, "-b", fmt.Sprintf("%.1fG", targetGbps))
+			log.Printf("    Target load: %d%% (%.1f Gbps %s)", loadLevel, targetGbps, g.benchmark.testMode)
+		}
 	} else {
-		log.Printf("    Target load: %d%% (unlimited, expecting ~%.1f Gbps)", loadLevel, g.maxBandwidth)
+		log.Printf("    Target load: %d%% (unlimited %s)", loadLevel, g.benchmark.testMode)
 	}
 
 	g.cmd = exec.Command("iperf3", args...)
@@ -179,7 +212,7 @@ func (b *NetworkBenchmark) getNetworkUtilization() (float64, error) {
 	// Get current network stats for all physical interfaces
 	ioCounters, err := net.IOCounters(true)
 	if err != nil {
-		return float64(b.currentLoadLevel), err // Fallback to target
+		return float64(b.currentLoadLevel), err
 	}
 
 	var totalBytesRx, totalBytesTx uint64
@@ -187,7 +220,6 @@ func (b *NetworkBenchmark) getNetworkUtilization() (float64, error) {
 
 	// Sum up bytes for all physical interfaces
 	for _, iface := range b.networkInfo.Interfaces {
-		// Find matching interface in IO counters
 		for _, counter := range ioCounters {
 			if counter.Name == iface.Name {
 				totalBytesRx += counter.BytesRecv
@@ -208,14 +240,35 @@ func (b *NetworkBenchmark) getNetworkUtilization() (float64, error) {
 			// Convert to bits per second, then to Gbps
 			rxGbps := float64(deltaBytesRx) * 8 / deltaTime / 1e9
 			txGbps := float64(deltaBytesTx) * 8 / deltaTime / 1e9
-			totalGbps := rxGbps + txGbps
 
-			// Calculate utilization percentage
-			utilization := (totalGbps / b.networkInfo.TotalBandwidth) * 100.0
+			// Calculate utilization based on test mode
+			var utilization float64
+			var utilizationMode string
+
+			switch b.testMode {
+			case "bidirectional":
+				// For bidirectional, use MAX of TX/RX as percentage of per-NIC capacity
+				perNicCapacity := b.networkInfo.TotalBandwidth / float64(b.networkInfo.PhysicalNICs)
+				utilization = math.Max(rxGbps, txGbps) / perNicCapacity * 100.0
+				utilizationMode = "MAX(TX,RX)"
+
+			default:
+				// For unidirectional (send/receive), use the dominant direction
+				perNicCapacity := b.networkInfo.TotalBandwidth / float64(b.networkInfo.PhysicalNICs)
+				if b.testMode == "receive" {
+					utilization = rxGbps / perNicCapacity * 100.0
+					utilizationMode = "RX"
+				} else {
+					utilization = txGbps / perNicCapacity * 100.0
+					utilizationMode = "TX"
+				}
+			}
 
 			if b.Config.Verbose {
-				log.Printf("    Network throughput: RX %.1f Gbps, TX %.1f Gbps, Total %.1f Gbps (%.1f%% of %.1f Gbps)",
-					rxGbps, txGbps, totalGbps, utilization, b.networkInfo.TotalBandwidth)
+				log.Printf("    Network throughput: RX %.1f Gbps, TX %.1f Gbps",
+					rxGbps, txGbps)
+				log.Printf("    Utilization: %.1f%% (%s mode, using %s)",
+					utilization, b.testMode, utilizationMode)
 			}
 
 			// Update stats for next measurement
@@ -241,7 +294,6 @@ func (b *NetworkBenchmark) getNetworkUtilization() (float64, error) {
 		timestamp:     currentTime,
 	}
 
-	// Return target load level for first measurement
 	return float64(b.currentLoadLevel), nil
 }
 
