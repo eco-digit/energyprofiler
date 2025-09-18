@@ -1,18 +1,11 @@
 # Usage examples
 ```
-Default (utilization on X, auto grid):
+# To plot run
+python3 pretty_power_plot.py power-profile.json
 
-python3 pretty_power_plot.py cpu-power-profile.json
-
-Flip axes (power on X, utilization on Y):
-
-python3 pretty_power_plot.py cpu-power-profile.json --flip
-
-Force 10-unit grid ticks regardless of samples:
-
+# Force 10-unit grid ticks regardless of samples:
 python3 pretty_power_plot.py cpu-power-profile.json --gridstep 10
 
-Plot only the compute and store profiles and save to SVG:
-
-python3 pretty_power_plot.py cpu-power-profile.json --profiles compute,store --out out.svg
+# Plot only the compute and store profiles and save to SVG:
+python3 pretty_power_plot.py power-profile.json --profiles compute,store --out out.svg
 ```
