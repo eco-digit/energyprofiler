@@ -121,27 +121,34 @@ func (g *storageLoadGenerator) Start(loadLevel int) error {
 	g.benchmark.currentLoadLevel = loadLevel
 
 	var args []string
-	var numWorkers int
 	timeoutDuration := g.config.StabilizeDuration + g.config.MeasurementDuration + (30 * time.Second)
 
 	switch g.stressorType {
 	case "io":
-		// Pure I/O stress with limited workers for linear scaling
-		numWorkers = 1 + (3 * loadLevel / 100) // 1-4 workers max
+		// For higher utilization at max load, use more workers
+		var numWorkers int
+		if loadLevel >= 90 {
+			numWorkers = 8 // More workers for 90-100% load
+		} else if loadLevel >= 75 {
+			numWorkers = 6 // Moderate increase for high load
+		} else {
+			numWorkers = 1 + (3 * loadLevel / 100) // 1-3 workers for 0-74%
+		}
+
 		args = []string{
 			"--io", fmt.Sprintf("%d", numWorkers),
 			"--timeout", fmt.Sprintf("%.0fs", timeoutDuration.Seconds()),
 			"--metrics-brief",
 		}
 		log.Printf("    I/O stress: %d workers for %d%% load", numWorkers, loadLevel)
+		log.Printf("    Target load: %d%%, Starting %d workers with %s stressor",
+			loadLevel, numWorkers, g.stressorType)
 
 	case "hdd":
-		// HDD stress with limited workers
-		numWorkers = 1 + (3 * loadLevel / 100) // 1-4 workers max
-		sizePerWorker := fmt.Sprintf("%dG", loadLevel/5)
-		if loadLevel < 10 {
-			sizePerWorker = "1G"
-		}
+		// HDD stress with progressive scaling
+		numWorkers := 1 + (3 * loadLevel / 100) // 1-4 workers
+		sizePerWorker := calculateDataSize(loadLevel, g.storageInfo.TotalCapacity)
+
 		args = []string{
 			"--hdd", fmt.Sprintf("%d", numWorkers),
 			"--hdd-bytes", sizePerWorker,
@@ -150,28 +157,37 @@ func (g *storageLoadGenerator) Start(loadLevel int) error {
 			"--metrics-brief",
 		}
 		log.Printf("    HDD stress: %d workers, %s per worker", numWorkers, sizePerWorker)
+		log.Printf("    Target load: %d%%, Starting %d workers with %s stressor",
+			loadLevel, numWorkers, g.stressorType)
 
 	case "ssd":
-		// SSD optimized with slightly more workers
-		numWorkers = 1 + (5 * loadLevel / 100) // 1-6 workers max
-		sizePerWorker := fmt.Sprintf("%dG", loadLevel/10)
-		if loadLevel < 10 {
-			sizePerWorker = "256M"
+		// SSD optimized with better scaling
+		var numWorkers int
+		if loadLevel >= 80 {
+			numWorkers = 8 // adds workers for high load
+		} else {
+			numWorkers = 1 + (5 * loadLevel / 100) // 1-5 workers
 		}
+
+		sizePerWorker := calculateDataSize(loadLevel, g.storageInfo.TotalCapacity)
+
 		args = []string{
 			"--hdd", fmt.Sprintf("%d", numWorkers),
 			"--hdd-bytes", sizePerWorker,
-			"--hdd-opts", "direct,sync,wr-rnd,rd-rnd", // Random I/O for SSD
-			"--hdd-write-size", "4K", // 4KB chunks for SSD
+			"--hdd-opts", "direct,sync,wr-rnd,rd-rnd", // Random I/O
+			"--hdd-write-size", "4K", // 4KB chunks
 			"--timeout", fmt.Sprintf("%.0fs", timeoutDuration.Seconds()),
 			"--metrics-brief",
 		}
 		log.Printf("    SSD stress: %d workers, %s per worker, 4K random I/O", numWorkers, sizePerWorker)
+		log.Printf("    Target load: %d%%, Starting %d workers with %s stressor",
+			loadLevel, numWorkers, g.stressorType)
 
 	case "iomix":
-		// Mixed I/O workload with limited workers
-		numWorkers = 1 + (3 * loadLevel / 100)            // 1-4 workers max
+		// Mixed I/O workload with better scaling
+		numWorkers := 1 + (4 * loadLevel / 100)           // 1-5 workers
 		opsPerWorker := 10000 + (40000 * loadLevel / 100) // 10K-50K ops
+
 		args = []string{
 			"--iomix", fmt.Sprintf("%d", numWorkers),
 			"--iomix-ops", fmt.Sprintf("%d", opsPerWorker),
@@ -179,11 +195,14 @@ func (g *storageLoadGenerator) Start(loadLevel int) error {
 			"--metrics-brief",
 		}
 		log.Printf("    I/O mix stress: %d workers, %d ops per worker", numWorkers, opsPerWorker)
+		log.Printf("    Target load: %d%%, Starting %d workers with %s stressor",
+			loadLevel, numWorkers, g.stressorType)
 
 	case "aio":
-		// Async I/O with limited workers and scaled queue depth
-		numWorkers = 1 + (2 * loadLevel / 100)   // 1-3 workers max
-		queueDepth := 4 + (28 * loadLevel / 100) // 4-32 queue depth
+		// Async I/O with scaled workers and queue depth
+		numWorkers := 1 + (3 * loadLevel / 100)  // 1-4 workers
+		queueDepth := 4 + (60 * loadLevel / 100) // 4-64 queue depth
+
 		args = []string{
 			"--aio", fmt.Sprintf("%d", numWorkers),
 			"--aio-requests", fmt.Sprintf("%d", queueDepth),
@@ -191,13 +210,12 @@ func (g *storageLoadGenerator) Start(loadLevel int) error {
 			"--metrics-brief",
 		}
 		log.Printf("    Async I/O stress: %d workers, queue depth %d", numWorkers, queueDepth)
+		log.Printf("    Target load: %d%%, Starting %d workers with %s stressor",
+			loadLevel, numWorkers, g.stressorType)
 
 	default:
 		return fmt.Errorf("unsupported stressor type: %s", g.stressorType)
 	}
-
-	log.Printf("    Target load: %d%%, Starting stress-ng with %s stressor",
-		loadLevel, g.stressorType)
 
 	g.cmd = exec.Command("stress-ng", args...)
 
@@ -206,6 +224,25 @@ func (g *storageLoadGenerator) Start(loadLevel int) error {
 
 	return g.cmd.Start()
 }
+
+// Helper function for calculating data size
+func calculateDataSize(loadLevel int, totalCapacityGB uint64) string {
+	// Scale data size based on load level and available capacity
+	maxSizeGB := totalCapacityGB / 20 // Use max 5% of disk
+	if maxSizeGB > 10 {
+		maxSizeGB = 10 // Cap at 10GB per worker
+	}
+
+	sizeGB := (maxSizeGB * uint64(loadLevel)) / 100
+	if sizeGB < 1 {
+		// For low load levels, use MB
+		sizeMB := 256 + (768 * loadLevel / 100) // 256MB - 1GB
+		return fmt.Sprintf("%dM", sizeMB)
+	}
+
+	return fmt.Sprintf("%dG", sizeGB)
+}
+
 func (g *storageLoadGenerator) Stop() error {
 	// Reset load level when stopping
 	g.benchmark.currentLoadLevel = 0
