@@ -1,10 +1,27 @@
 # Energyprofiler 
-Baremetal energy profiler for server without RAPL, turbostat or possibility to access PDU data
+Baremetal energy profiler for server without RAPL, turbostat or possibility to access PDU data. 
 
+## Requirements:
+For BMC data access:
+- ipmitool
+- stress-ng
 
-## Requirements and Usage
+## Usage
+To build benchmark binary, run:
 ```
-GOOS=linux GOARCH=amd64 go build -o benchmark ./cmd
+make build
+```
+
+To execute move binary onto the compute node. And execute 
+```
+make build
+```
+
+
+Requirements for network benchmarks:
+
+```
+- steam for network benchmarks to generate load
 ```
 
 ## Flag helper
@@ -53,16 +70,14 @@ If no falgs are provided the tool runs with the following default settings:
 ## DBR 1 CPU:
 This benchmark stresses CPU cores using stress-ng. Define the target utilization levels (e.g. 10%, 50%, 100%), and the profiler ramps up CPU load with multiple workers and collects power readings from the configured source (at the moment only BMC; set to component power cpu only or system-wide).
 
-- uid 0
-- requirements 
-- 
 #### Example:
 ```
 # Fast func test:
 ./benchmark --resource cpu --cycles 1 --load-levels 10,50 --stabilize 5s --measurement-duration 10s --verbose
 
 # Production test: 
-./benchmark --resource cpu --cycles 3 --load-levels 10,25,50,75,100 --stabilize 30s --measurement-duration 60s --measurement-interval 10s --cooldown 30s --output production-cpu-results.json
+./benchmark --resource cpu --cycles 3 --load-levels 10,20,30,40,50,60,70,80,90,100 --stabilize 30s --measurement-duration 60s --measurement-interval 10s --cooldown 30s --output production-cpu-results.json
+
 ```
 
 
@@ -82,21 +97,12 @@ This is a capacity-only test, not bandwidth. Good for idle DRAM draw across diff
 ```
 ### Bandwidth Benchmark (--resource memory-bandwidth)
 This version uses the STREAM benchmark to push memory throughput (GB/s) at different intensities, scaling threads and working-set sizes.
-We normalize the measured STREAM Triad value to the theoretical peak (based on RAM type and channels) to get a % bandwidth utilization, then track power over time.
-Internally, it runs 5 configs (simplified):
-* minimal → 1 thread, ~1 GB, ~20% load
-* light → one thread per channel (~40% load)
-* moderate → 2× per channel (~60% load)
-* heavy → 4× per channel (~80% load)
-* maximum → 8× per channel (~100% load)
-
-STREAM reports Triad bandwidth (GB/s). We normalize it against the system’s theoretical peak (from DIMM speed × channels) to get a utilization %. At least tahts the goal needs some more fine-tuning. 
+We normalize the measured STREAM Triad value to the theoretical peak (based on RAM type and channels) to get a % bandwidth utilization, then track power over time.  STREAM reports Triad bandwidth (GB/s). We normalize it against the system’s theoretical peak (from DIMM speed × channels) to get a utilization %. At least tahts the goal needs some more fine-tuning. 
 
 #### Example:
 ```
 ./benchmark --resource memory-bandwidth --cycles 1 --stabilize 10s --measurement-duration 30s --stream-path ./stream
 ```
-
 
 ## DBR 3 Store:
 This benchmark will stress storage I/O (SSD/HDD) and correlate it with power usage. Currently WIP depending on your tool implementation — but the idea is to use tools like fio to push different read/write workloadsat configurable levels.
@@ -106,9 +112,7 @@ It's NOT measuring:
 - I/Os achieved
 - Latency
 - Real utilization percentage
-
 ---
-
 During hardware discovery, the benchmark assigns estimated peak values:
 * TheoreticalIOPS: max I/O operations per second (e.g. 500K for NVMe)
 * TheoreticalBW: max bandwidth in MB/s (e.g. 550 for SATA SSD)
@@ -150,8 +154,6 @@ To start the networking server for steam:
 ```
 
 
-
-
 ## System-wide Power test:
 ```
 ./benchmark \
@@ -163,8 +165,4 @@ To start the networking server for steam:
     --system-power \
     --output system-power-results.json
 ```
-
-### Output 
-We use the exact power_profile from the testbench:
-
 
