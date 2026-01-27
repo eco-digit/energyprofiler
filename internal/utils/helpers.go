@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,13 +34,7 @@ func ParseLoadLevels(loadLevelsStr string) []int {
 	}
 
 	// Sort levels
-	for i := 0; i < len(levels); i++ {
-		for j := i + 1; j < len(levels); j++ {
-			if levels[i] > levels[j] {
-				levels[i], levels[j] = levels[j], levels[i]
-			}
-		}
-	}
+	slices.Sort(levels)
 
 	return levels
 }
