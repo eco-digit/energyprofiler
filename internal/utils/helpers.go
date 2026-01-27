@@ -24,9 +24,9 @@ func RoundToTwoDecimals(val float64) float64 {
 
 func ParseLoadLevels(loadLevelsStr string) []int {
 	var levels []int
-	parts := strings.Split(loadLevelsStr, ",")
+	parts := strings.SplitSeq(loadLevelsStr, ",")
 
-	for _, part := range parts {
+	for part := range parts {
 		if level, err := strconv.Atoi(strings.TrimSpace(part)); err == nil {
 			levels = append(levels, level)
 		}
