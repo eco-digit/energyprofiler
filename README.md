@@ -30,7 +30,7 @@ Usage:
    ./benchmark [flags]
 
 Flags:
-      --resource string                benchmark to run: cpu, memory, memory-bandwidth, storage, network all (default "cpu")
+      --resource string                benchmark to run: cpu, memory, memory-bandwidth, storage, network, all (default "cpu")
       --cycles int                     how many times to repeat the benchmark (default 3)
       --load-levels string             comma-separated percentages to target (default "10,25,50,75,100")
       --stabilize duration             time to wait before measurement starts (default "30s")

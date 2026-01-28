@@ -37,59 +37,70 @@ func main() {
 		PowerProfile: types.PowerProfile{},
 	}
 
+	var (
+		runCPU             bool
+		runMemoryBandwidth bool
+		runMemoryCapacity  bool
+		runNetwork         bool
+		runStorage         bool
+	)
+
 	switch config.Resource {
 	case "cpu", "compute":
-		if err := runCPUBenchmark(ctx, config, benchmarkResults); err != nil {
-			log.Fatalf("CPU core failed: %v", err)
-		}
-
-	case "memory", "memory-capacity":
-		if err := runMemoryCapacityBenchmark(ctx, config, benchmarkResults); err != nil {
-			log.Fatalf("Memory capacity benchmark failed: %v", err)
-		}
+		runCPU = true
 
 	case "memory-bandwidth":
-		if err := runMemoryBandwidthBenchmark(ctx, config, benchmarkResults); err != nil {
-			log.Fatalf("Memory bandwidth benchmark failed: %v", err)
-		}
+		runMemoryBandwidth = true
+
+	case "memory", "memory-capacity":
+		runMemoryCapacity = true
+
 	case "network", "transfer":
-		if err := runNetworkBenchmark(ctx, config, benchmarkResults); err != nil {
-			log.Fatalf("Network benchmark failed: %v", err)
-		}
+		runNetwork = true
 
 	case "storage", "store":
-		if err := runStorageBenchmark(ctx, config, benchmarkResults); err != nil {
-			log.Fatalf("Storage benchmark failed: %v", err)
-		}
+		runStorage = true
+
 	case "all":
+		runCPU = true
+		runMemoryBandwidth = true
+		runMemoryCapacity = true
+		runNetwork = true
+		runStorage = true
 		log.Println("Running all benchmarks")
-
-		// CPU
-		log.Println("### CPU Benchmark ###")
-		if err := runCPUBenchmark(ctx, config, benchmarkResults); err != nil {
-			log.Printf("Warning: CPU benchmark failed: %v", err)
-		}
-
-		// Memory Capacity
-		log.Println("### Memory Capacity Benchmark ###")
-		if err := runMemoryCapacityBenchmark(ctx, config, benchmarkResults); err != nil {
-			log.Printf("Warning: Memory capacity benchmark failed: %v", err)
-		}
-
-		// Storage
-		log.Println("### Storage Benchmark ###")
-		if err := runStorageBenchmark(ctx, config, benchmarkResults); err != nil {
-			log.Printf("Warning: Storage benchmark failed: %v", err)
-		}
-
-		// Tranfser/Network
-		log.Println("### Network Benchmark ###")
-		if err := runNetworkBenchmark(ctx, config, benchmarkResults); err != nil {
-			log.Printf("Warning: NEtwork benchmark failed: %v", err)
-		}
 
 	default:
 		log.Fatalf("Unknown resource type: %s", config.Resource)
+	}
+
+	if runCPU {
+		if err := runCPUBenchmark(ctx, config, benchmarkResults); err != nil {
+			log.Fatalf("CPU core failed: %v", err)
+		}
+	}
+
+	if runMemoryBandwidth {
+		if err := runMemoryBandwidthBenchmark(ctx, config, benchmarkResults); err != nil {
+			log.Fatalf("Memory bandwidth benchmark failed: %v", err)
+		}
+	}
+
+	if runMemoryCapacity {
+		if err := runMemoryCapacityBenchmark(ctx, config, benchmarkResults); err != nil {
+			log.Fatalf("Memory capacity benchmark failed: %v", err)
+		}
+	}
+
+	if runNetwork {
+		if err := runNetworkBenchmark(ctx, config, benchmarkResults); err != nil {
+			log.Fatalf("Network benchmark failed: %v", err)
+		}
+	}
+
+	if runStorage {
+		if err := runStorageBenchmark(ctx, config, benchmarkResults); err != nil {
+			log.Fatalf("Storage benchmark failed: %v", err)
+		}
 	}
 
 	// get total average

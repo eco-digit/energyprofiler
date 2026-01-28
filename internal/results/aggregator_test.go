@@ -21,6 +21,14 @@ func BenchmarkSortAlgo(b *testing.B) {
 	})
 	a.AddCycle([]types.CycleData{
 		{
+			LoadLevel:       100,
+			MeasuredUtil:    100,
+			PowerValues:     []float64{32.45435, 23.1212, 13.22222},
+			UtilizationVals: []float64{99.9, 100, 99.8},
+		},
+	})
+	a.AddCycle([]types.CycleData{
+		{
 			LoadLevel:       30,
 			MeasuredUtil:    30.1,
 			PowerValues:     []float64{32.45435, 23.1212, 13.22222},
@@ -71,6 +79,6 @@ func BenchmarkSortAlgo(b *testing.B) {
 	}
 
 	for b.Loop() {
-		a.getSortedKeys(utilizationLevels)
+		getSortedKeys(utilizationLevels)
 	}
 }

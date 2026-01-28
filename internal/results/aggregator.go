@@ -55,7 +55,7 @@ func (a *Aggregator) GetAggregatedProfile() *types.ResourceProfile {
 	profile := make(map[string]float64)
 	var allAvgs []float64
 
-	keys := a.getSortedKeys(utilizationLevels)
+	keys := getSortedKeys(utilizationLevels)
 
 	for _, key := range keys {
 		powerVals := utilizationLevels[key]
@@ -72,7 +72,7 @@ func (a *Aggregator) GetAggregatedProfile() *types.ResourceProfile {
 	}
 }
 
-func (a *Aggregator) getSortedKeys(utilizationLevels map[string][]float64) []string {
+func getSortedKeys(utilizationLevels map[string][]float64) []string {
 	keys := make([]string, 0, len(utilizationLevels))
 	for k := range utilizationLevels {
 		keys = append(keys, k)
