@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/eco-digit/energyprofiler/internal/benchmarks"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/eco-digit/energyprofiler/internal/benchmarks"
 
 	"github.com/eco-digit/energyprofiler/internal/results"
 	"github.com/eco-digit/energyprofiler/internal/types"
