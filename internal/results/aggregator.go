@@ -1,10 +1,12 @@
 package results
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
+
 	"github.com/eco-digit/energyprofiler/internal/types"
 	"github.com/eco-digit/energyprofiler/internal/utils"
-	"strconv"
 )
 
 type Aggregator struct {
@@ -76,15 +78,15 @@ func (a *Aggregator) getSortedKeys(utilizationLevels map[string][]float64) []str
 		keys = append(keys, k)
 	}
 
-	for i := 0; i < len(keys); i++ {
-		for j := i + 1; j < len(keys); j++ {
-			iVal, _ := strconv.ParseFloat(keys[i], 64)
-			jVal, _ := strconv.ParseFloat(keys[j], 64)
-			if iVal > jVal {
-				keys[i], keys[j] = keys[j], keys[i]
-			}
+	slices.SortStableFunc(keys, func(a, b string) int {
+		aLen, bLen := len(a), len(b)
+
+		if aLen != bLen {
+			return cmp.Compare(aLen, bLen)
 		}
-	}
+
+		return cmp.Compare(a, b)
+	})
 
 	return keys
 }
