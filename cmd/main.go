@@ -31,11 +31,10 @@ func main() {
 
 	log.Printf("Starting baremetal-profiles core")
 	log.Printf("Resource: %s, Cycles: %d, Load levels: %v",
-		config.Resource, config.Cycles, config.LoadLevels)
+		config.Resource, config.Cycles, config.LoadLevels,
+	)
 
-	benchmarkResults := &types.BenchmarkResults{
-		PowerProfile: types.PowerProfile{},
-	}
+	benchmarkResults := &types.BenchmarkResults{}
 
 	var (
 		runCPU             bool
@@ -134,6 +133,10 @@ func parseFlags() *types.Config {
 		networkServer     = flag.String("network-server", "", "iperf3 server address")
 		networkPort       = flag.Int("network-port", 5201, "iperf3 server port")
 		networkTestMode   = flag.String("network-mode", "send", "Network test mode: send, receive, or bidirectional")
+		modbusAddress     = flag.String("modbus-address", "", "Modbus address to query system power from")
+		modbusPort        = flag.Int("modbus-port", 502, "Modbus port to query system power from")
+		modbusRegister    = flag.Uint("modbus-register", 0, "Modbus register to query system power from, this needs to be power in Watts")
+		modbusFactor      = flag.Float64("modbus-factor", 1, "Modbus factor, the value retrieved will be multiplied by this to calculate Watts")
 	)
 
 	flag.Parse()
@@ -156,6 +159,10 @@ func parseFlags() *types.Config {
 		NetworkServer:       *networkServer,
 		NetworkPort:         *networkPort,
 		NetworkTestMode:     *networkTestMode,
+		ModbusAddress:       *modbusAddress,
+		ModbusPort:          *modbusPort,
+		ModbusRegister:      uint16(*modbusRegister),
+		ModbusFactor:        *modbusFactor,
 	}
 }
 

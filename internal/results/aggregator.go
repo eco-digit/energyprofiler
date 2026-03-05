@@ -1,7 +1,6 @@
 package results
 
 import (
-	"cmp"
 	"fmt"
 	"slices"
 
@@ -37,11 +36,10 @@ func (a *Aggregator) GetAggregatedProfile() *types.ResourceProfile {
 	// Group power values by utilization level across cycles
 	for _, cycle := range a.cycles {
 		for _, data := range cycle {
-			var utilKey string
+			utilKey := fmt.Sprintf("%d", int(data.MeasuredUtil+0.5))
+
 			if data.MeasuredUtil < 5.0 {
 				utilKey = fmt.Sprintf("%.1f", data.MeasuredUtil)
-			} else {
-				utilKey = fmt.Sprintf("%d", int(data.MeasuredUtil+0.5))
 			}
 
 			if len(data.PowerValues) > 0 {
@@ -78,15 +76,7 @@ func getSortedKeys(utilizationLevels map[string][]float64) []string {
 		keys = append(keys, k)
 	}
 
-	slices.SortStableFunc(keys, func(a, b string) int {
-		aLen, bLen := len(a), len(b)
-
-		if aLen != bLen {
-			return cmp.Compare(aLen, bLen)
-		}
-
-		return cmp.Compare(a, b)
-	})
+	slices.SortStableFunc(keys, utils.SortStrings)
 
 	return keys
 }
@@ -106,8 +96,7 @@ func (a *Aggregator) GetAggregatedProfileWithPercentages() *types.ResourceProfil
 	var allAvgs []float64
 
 	// Process each percentage level in order
-	for i, targetPercentage := range percentageLevels {
-		configIndex := i
+	for configIndex, targetPercentage := range percentageLevels {
 
 		for _, cycle := range a.cycles {
 			if configIndex < len(cycle) {

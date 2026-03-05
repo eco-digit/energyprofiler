@@ -14,7 +14,7 @@ func SaveResults(results *types.BenchmarkResults, filename string) error {
 		return fmt.Errorf("failed to format JSON: %w", err)
 	}
 
-	if err := os.WriteFile(filename, b, os.ModePerm); err != nil {
+	if err := os.WriteFile(filename, b, 0644); err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
 

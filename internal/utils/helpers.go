@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"cmp"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,7 +13,7 @@ func CalculateAverage(values []float64) float64 {
 		return 0
 	}
 
-	sum := 0.0
+	var sum float64
 	for _, value := range values {
 		sum += value
 	}
@@ -41,13 +42,25 @@ func ParseLoadLevels(loadLevelsStr string) []int {
 
 func ParseDuration(durationStr string) time.Duration {
 	duration, err := time.ParseDuration(durationStr)
-	if err != nil {
-		if strings.HasSuffix(durationStr, "s") {
-			if seconds, err := strconv.Atoi(strings.TrimSuffix(durationStr, "s")); err == nil {
-				return time.Duration(seconds) * time.Second
-			}
-		}
+	if err == nil {
+		return duration
+	}
+
+	durationStrCut, found := strings.CutSuffix(durationStr, "s")
+	seconds, err := strconv.Atoi(durationStrCut)
+	if err != nil || !found {
 		return 30 * time.Second
 	}
-	return duration
+
+	return time.Duration(seconds) * time.Second
+}
+
+func SortStrings(a, b string) int {
+	aLen, bLen := len(a), len(b)
+
+	if aLen != bLen {
+		return cmp.Compare(aLen, bLen)
+	}
+
+	return cmp.Compare(a, b)
 }
