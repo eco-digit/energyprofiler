@@ -33,7 +33,6 @@ func (p *PDUReader) ReadPower(_ string) (float64, error) {
 
 func (p *PDUReader) ReadSystemPower() (float64, error) {
 	URL := p.URL.String()
-	// if strings.HasPrefix(URL, "tcp")
 	prefix := regexp.MustCompile(`\w+:\/\/`).FindString(URL)
 	if prefix == "" {
 		URL = fmt.Sprintf("tcp://%s", URL)

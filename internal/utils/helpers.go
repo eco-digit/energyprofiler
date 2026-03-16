@@ -58,9 +58,38 @@ func ParseDuration(durationStr string) time.Duration {
 func SortStrings(a, b string) int {
 	aLen, bLen := len(a), len(b)
 
-	if aLen != bLen {
-		return cmp.Compare(aLen, bLen)
-	}
+	const dot = byte(46)
 
-	return cmp.Compare(a, b)
+	switch {
+	// comparing decimal numbers (a, b < 10)
+	case aLen > 2 && a[1] == dot && bLen > 2 && b[1] == dot:
+		a = strings.ReplaceAll(a, ".", "")
+		b = strings.ReplaceAll(b, ".", "")
+
+		return cmp.Compare(a, b)
+
+	// a is decimal and b is single digit
+	case aLen > 2 && a[1] == dot && bLen == 1 && cmp.Compare(string(a[0]), b) == 0:
+		return 1
+
+	// b is decimal and a is single digit
+	case bLen > 2 && b[1] == dot && aLen == 1 && cmp.Compare(a, string(b[0])) == 0:
+		return -1
+
+	// a is decimal and b is multiple digits
+	case aLen > 2 && a[1] == dot:
+		return cmp.Compare(string(a[0]), b)
+
+	// b is decimal and a is multiple digits
+	case bLen > 2 && b[1] == dot:
+		return cmp.Compare(a, string(b[0]))
+
+	// a and b are multiple non decimal digits of different length
+	case aLen != bLen:
+		return cmp.Compare(aLen, bLen)
+
+	// a and b are multiple non decimal digits of same length
+	default:
+		return cmp.Compare(a, b)
+	}
 }
