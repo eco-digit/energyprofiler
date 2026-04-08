@@ -1,5 +1,5 @@
-# Energyprofiler 
-Baremetal energy profiler for server without RAPL, turbostat or possibility to access PDU data. 
+# Energyprofiler
+Baremetal energy profiler for server without RAPL, turbostat or possibility to access PDU data.
 
 ## Requirements:
 For BMC data access:
@@ -12,7 +12,7 @@ To build benchmark binary, run:
 make build
 ```
 
-To execute move binary onto the compute node. And execute 
+To execute move binary onto the compute node. And execute
 ```
 make build
 ```
@@ -21,7 +21,7 @@ make build
 Requirements for network benchmarks:
 
 ```
-- steam for network benchmarks to generate load
+- stream for network benchmarks to generate load
 ```
 
 ## Flag helper
@@ -30,7 +30,7 @@ Usage:
    ./benchmark [flags]
 
 Flags:
-      --resource string                benchmark to run: cpu, memory, memory-bandwidth, storage, network all (default "cpu")
+      --resource string                benchmark to run: cpu, memory, memory-bandwidth, storage, network, all (default "cpu")
       --cycles int                     how many times to repeat the benchmark (default 3)
       --load-levels string             comma-separated percentages to target (default "10,25,50,75,100")
       --stabilize duration             time to wait before measurement starts (default "30s")
@@ -75,7 +75,7 @@ This benchmark stresses CPU cores using stress-ng. Define the target utilization
 # Fast func test:
 ./benchmark --resource cpu --cycles 1 --load-levels 10,50 --stabilize 5s --measurement-duration 10s --verbose
 
-# Production test: 
+# Production test:
 ./benchmark --resource cpu --cycles 3 --load-levels 10,20,30,40,50,60,70,80,90,100 --stabilize 30s --measurement-duration 60s --measurement-interval 10s --cooldown 30s --output production-cpu-results.json
 
 ```
@@ -87,7 +87,7 @@ This measures how much DRAM power increases when we allocate more memory — wit
 
 * --vm-populate --> actually touches every page so RAM is really used (no lazy allocation)
 * --vm-locked --> keeps pages in DRAM (no swapping)
-* --vm-hang --> after filling memory, workers go idle and just hold the allocation (capacity test, not bandwidth :) 
+* --vm-hang --> after filling memory, workers go idle and just hold the allocation (capacity test, not bandwidth :)
 
 This is a capacity-only test, not bandwidth. Good for idle DRAM draw across different memory pressure levels.
 
@@ -97,7 +97,7 @@ This is a capacity-only test, not bandwidth. Good for idle DRAM draw across diff
 ```
 ### Bandwidth Benchmark (--resource memory-bandwidth)
 This version uses the STREAM benchmark to push memory throughput (GB/s) at different intensities, scaling threads and working-set sizes.
-We normalize the measured STREAM Triad value to the theoretical peak (based on RAM type and channels) to get a % bandwidth utilization, then track power over time.  STREAM reports Triad bandwidth (GB/s). We normalize it against the system’s theoretical peak (from DIMM speed × channels) to get a utilization %. At least tahts the goal needs some more fine-tuning. 
+We normalize the measured STREAM Triad value to the theoretical peak (based on RAM type and channels) to get a % bandwidth utilization, then track power over time. STREAM reports Triad bandwidth (GB/s). We normalize it against the system’s theoretical peak (from DIMM speed × channels) to get a utilization %. At least tahts the goal needs some more fine-tuning.
 
 #### Example:
 ```
@@ -122,7 +122,7 @@ During hardware discovery, the benchmark assigns estimated peak values:
 - HDD estimates (~200 IOPS, 150 MB/s) are upper bounds for modern 7200 RPM drives
 
 These are not measured, but used to:
-- Normalize I/O load levels 
+- Normalize I/O load levels
 - Scale workers and ops in the benchmark
  Attribute energy use to I/O intensity (% of peak, not absolute speed)
 
@@ -165,4 +165,3 @@ To start the networking server for steam:
     --system-power \
     --output system-power-results.json
 ```
-

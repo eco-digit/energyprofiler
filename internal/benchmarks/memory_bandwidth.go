@@ -327,7 +327,7 @@ func (b *MemoryBandwidthBenchmark) startContinuousSTREAM(config BandwidthConfig)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("OMP_NUM_THREADS=%d", config.Threads),
 		fmt.Sprintf("STREAM_ARRAY_SIZE=%d", arraySize),
-		fmt.Sprintf("STREAM_NTIMES=999999"), // Run many iterations
+		"STREAM_NTIMES=999999", // Run many iterations
 	)
 	if b.Config.StreamWorkdir != "" {
 		cmd.Dir = b.Config.StreamWorkdir
@@ -357,7 +357,7 @@ func (b *MemoryBandwidthBenchmark) sampleSTREAMBandwidth(config BandwidthConfig)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("OMP_NUM_THREADS=%d", config.Threads),
 		fmt.Sprintf("STREAM_ARRAY_SIZE=%d", arraySize),
-		fmt.Sprintf("STREAM_NTIMES=1"),
+		"STREAM_NTIMES=1",
 	)
 	if b.Config.StreamWorkdir != "" {
 		cmd.Dir = b.Config.StreamWorkdir

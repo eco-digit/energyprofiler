@@ -2,9 +2,10 @@ package results
 
 import (
 	"fmt"
+	"slices"
+
 	"github.com/eco-digit/energyprofiler/internal/types"
 	"github.com/eco-digit/energyprofiler/internal/utils"
-	"strconv"
 )
 
 type Aggregator struct {
@@ -35,11 +36,10 @@ func (a *Aggregator) GetAggregatedProfile() *types.ResourceProfile {
 	// Group power values by utilization level across cycles
 	for _, cycle := range a.cycles {
 		for _, data := range cycle {
-			var utilKey string
+			utilKey := fmt.Sprintf("%d", int(data.MeasuredUtil+0.5))
+
 			if data.MeasuredUtil < 5.0 {
 				utilKey = fmt.Sprintf("%.1f", data.MeasuredUtil)
-			} else {
-				utilKey = fmt.Sprintf("%d", int(data.MeasuredUtil+0.5))
 			}
 
 			if len(data.PowerValues) > 0 {
@@ -53,7 +53,7 @@ func (a *Aggregator) GetAggregatedProfile() *types.ResourceProfile {
 	profile := make(map[string]float64)
 	var allAvgs []float64
 
-	keys := a.getSortedKeys(utilizationLevels)
+	keys := getSortedKeys(utilizationLevels)
 
 	for _, key := range keys {
 		powerVals := utilizationLevels[key]
@@ -70,21 +70,13 @@ func (a *Aggregator) GetAggregatedProfile() *types.ResourceProfile {
 	}
 }
 
-func (a *Aggregator) getSortedKeys(utilizationLevels map[string][]float64) []string {
+func getSortedKeys(utilizationLevels map[string][]float64) []string {
 	keys := make([]string, 0, len(utilizationLevels))
 	for k := range utilizationLevels {
 		keys = append(keys, k)
 	}
 
-	for i := 0; i < len(keys); i++ {
-		for j := i + 1; j < len(keys); j++ {
-			iVal, _ := strconv.ParseFloat(keys[i], 64)
-			jVal, _ := strconv.ParseFloat(keys[j], 64)
-			if iVal > jVal {
-				keys[i], keys[j] = keys[j], keys[i]
-			}
-		}
-	}
+	slices.SortStableFunc(keys, utils.SortStrings)
 
 	return keys
 }
@@ -104,8 +96,7 @@ func (a *Aggregator) GetAggregatedProfileWithPercentages() *types.ResourceProfil
 	var allAvgs []float64
 
 	// Process each percentage level in order
-	for i, targetPercentage := range percentageLevels {
-		configIndex := i
+	for configIndex, targetPercentage := range percentageLevels {
 
 		for _, cycle := range a.cycles {
 			if configIndex < len(cycle) {

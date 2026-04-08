@@ -22,6 +22,11 @@ type Config struct {
 	NetworkServer   string
 	NetworkPort     int
 	NetworkTestMode string
+
+	ModbusAddress  string
+	ModbusPort     int
+	ModbusRegister uint16
+	ModbusFactor   float64
 }
 
 type CycleData struct {
@@ -31,9 +36,11 @@ type CycleData struct {
 	UtilizationVals []float64 `json:"util_values"`
 }
 
+type Profile map[string]float64
+
 type ResourceProfile struct {
-	Profile map[string]float64 `json:"profile"`
-	Avg     float64            `json:"avg"`
+	Profile Profile `json:"profile"`
+	Avg     float64 `json:"avg"`
 }
 
 type BenchmarkResults struct {

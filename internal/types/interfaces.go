@@ -1,13 +1,12 @@
-package core
+package types
 
 import (
 	"context"
-	"github.com/eco-digit/energyprofiler/internal/types"
 )
 
 type Benchmark interface {
 	Name() string
-	Run(ctx context.Context) (*types.ResourceProfile, error)
+	Run(ctx context.Context) (*ResourceProfile, error)
 	Validate() error
 }
 

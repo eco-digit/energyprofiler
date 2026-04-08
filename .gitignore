@@ -1,3 +1,15 @@
+# GoLand config
 .idea/
-internal/.DS_Store
+
+# MacOS
 .DS_Store
+
+# binaries
+benchmark
+main
+
+# environment variables
+.env
+
+# vscode config
+.vscode

@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/eco-digit/energyprofiler/internal/types"
 )
 
 type BMCReader struct {
@@ -50,16 +52,17 @@ func (b *BMCReader) ReadPower(resourceType string) (float64, error) {
 
 // readWithFallback tries component power, falls back to system and warns
 func (b *BMCReader) readWithFallback(component string, reader func() (float64, error)) (float64, error) {
-	if v, err := reader(); err == nil {
+	v, err := reader()
+	if err == nil {
 		return v, nil
-	} else {
-		b.logOnce(component, "component power (%s) unavailable: %v, using system power", component, err)
-		return b.ReadSystemPower()
 	}
+
+	b.logOnce(component, "component power (%s) unavailable: %v, using system power", component, err)
+	return b.ReadSystemPower()
 }
 
 // logOnce logs a message only once per key to avoid spam
-func (b *BMCReader) logOnce(key, format string, args ...interface{}) {
+func (b *BMCReader) logOnce(key, format string, args ...any) {
 	if !b.warnedOnce[key] {
 		b.warnedOnce[key] = true
 		log.Printf("[bmc] "+format, args...)
@@ -194,13 +197,17 @@ func (b *BMCReader) getSDR() (string, error) {
 
 // extractFloat finds first match of pattern and extracts float from capture group 1
 func extractFloat(text, pattern string) (float64, bool) {
-	re := regexp.MustCompile(pattern)
-	if m := re.FindStringSubmatch(text); len(m) >= 2 {
-		if v, err := strconv.ParseFloat(m[1], 64); err == nil {
-			return v, true
-		}
+	m := regexp.MustCompile(pattern).FindStringSubmatch(text)
+	if len(m) < 2 {
+		return 0, false
 	}
-	return 0, false
+
+	v, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		return 0, false
+	}
+
+	return v, true
 }
 
 // sumMatchesWithNames sums matches and returns sensor names found
@@ -226,12 +233,15 @@ func sumMatchesWithNames(text string, patterns ...string) (sum float64, count in
 
 	// Format names string
 	if len(foundSensors) > 0 {
+		names = strings.Join(foundSensors, ", ")
+
 		if count > len(foundSensors) {
 			names = fmt.Sprintf("%s (and %d more)", strings.Join(foundSensors, ", "), count-len(foundSensors))
-		} else {
-			names = strings.Join(foundSensors, ", ")
 		}
 	}
 
 	return sum, count, names
 }
+
+// compile time compliance check
+var _ types.PowerReader = (*BMCReader)(nil)

@@ -3,23 +3,36 @@ package core
 import (
 	"context"
 	"fmt"
-	"github.com/eco-digit/energyprofiler/internal/types"
 	"log"
+	"net/url"
 	"time"
 
 	"github.com/eco-digit/energyprofiler/internal/power"
+	"github.com/eco-digit/energyprofiler/internal/types"
+
 	"github.com/eco-digit/energyprofiler/internal/results"
 	"github.com/eco-digit/energyprofiler/internal/utils"
 )
 
 type BaseBenchmark struct {
 	Config       *types.Config
-	PowerReader  PowerReader
+	PowerReader  types.PowerReader
 	Aggregator   *results.Aggregator
 	ResourceType string
 }
 
 func NewBaseBenchmark(config *types.Config, resourceType string) *BaseBenchmark {
+	if config.ModbusAddress != "" {
+		modbusAddress, _ := url.Parse(fmt.Sprintf("tcp://%s:%d", config.ModbusAddress, config.ModbusPort))
+
+		return &BaseBenchmark{
+			Config:       config,
+			PowerReader:  power.NewPDUReader(*modbusAddress, config.ModbusRegister, config.ModbusFactor, config.Verbose),
+			Aggregator:   results.NewAggregator(),
+			ResourceType: resourceType,
+		}
+	}
+
 	return &BaseBenchmark{
 		Config:       config,
 		PowerReader:  power.NewBMCReader(config.UseSystemPower, config.Verbose),
@@ -30,13 +43,14 @@ func NewBaseBenchmark(config *types.Config, resourceType string) *BaseBenchmark 
 
 func (b *BaseBenchmark) RunBenchmarkCycles(
 	ctx context.Context,
-	loadGen LoadGenerator,
-	utilizationGetter UtilizationGetter,
+	loadGen types.LoadGenerator,
+	utilizationGetter types.UtilizationGetter,
 ) (*types.ResourceProfile, error) {
 
 	log.Printf("Starting %s core with %d cycles", b.ResourceType, b.Config.Cycles)
 
-	for cycle := 1; cycle <= b.Config.Cycles; cycle++ {
+	for cycle := range b.Config.Cycles {
+		cycle++
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -64,8 +78,8 @@ func (b *BaseBenchmark) RunBenchmarkCycles(
 // runSingleCycle() test for each cycle multiple load levels
 func (b *BaseBenchmark) runSingleCycle(
 	ctx context.Context,
-	loadGen LoadGenerator,
-	utilizationGetter UtilizationGetter,
+	loadGen types.LoadGenerator,
+	utilizationGetter types.UtilizationGetter,
 	includeIdle bool,
 ) ([]types.CycleData, error) {
 
@@ -119,7 +133,7 @@ func (b *BaseBenchmark) runSingleCycle(
 	return cycleData, nil
 }
 
-func (b *BaseBenchmark) measureIdle(ctx context.Context, utilizationGetter UtilizationGetter) (types.CycleData, error) {
+func (b *BaseBenchmark) measureIdle(ctx context.Context, utilizationGetter types.UtilizationGetter) (types.CycleData, error) {
 	log.Printf("  Measuring idle baseline (0%% load)")
 
 	time.Sleep(10 * time.Second)
@@ -137,7 +151,7 @@ func (b *BaseBenchmark) measureIdle(ctx context.Context, utilizationGetter Utili
 }
 
 // collectMeasurements() collect power readings for each DBR
-func (b *BaseBenchmark) collectMeasurements(ctx context.Context, utilizationGetter UtilizationGetter) (types.CycleData, error) {
+func (b *BaseBenchmark) collectMeasurements(ctx context.Context, utilizationGetter types.UtilizationGetter) (types.CycleData, error) {
 	var powerValues []float64
 	var utilizationVals []float64
 
@@ -150,6 +164,7 @@ func (b *BaseBenchmark) collectMeasurements(ctx context.Context, utilizationGett
 			return types.CycleData{}, ctx.Err()
 		default:
 		}
+
 		// Read power from source (BMC)
 		power, err := b.PowerReader.ReadPower(b.ResourceType)
 		if err != nil {
